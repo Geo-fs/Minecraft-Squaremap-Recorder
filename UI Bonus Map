@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Squaremap Structure Plotter</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #121a2d;
+    --muted: #95a3c3;
+    --text: #e9eeff;
+    --accent: #7ae0ff;
+    --grid: #24314f;
+    --chunk: #2f3c60;
+    --region: #3a4770;
+    --axis: #8ea7ff;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+  .wrap { display: grid; grid-template-columns: 360px 1fr; gap: 12px; height: 100%; padding: 12px; }
+  .panel { background: var(--panel); border: 1px solid #273154; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; min-height: 0; }
+  .panel h2 { margin: 0 0 6px; font-size: 16px; }
+  .panel h3 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  textarea { width: 100%; min-height: 160px; resize: vertical; background: #0c1325; color: var(--text); border: 1px solid #37496e; border-radius: 8px; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .controls button, .controls input[type="color"], .controls select { width: 100%; }
+  button { background: #1b2440; border: 1px solid #40507a; color: var(--text); padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+  button:hover { background: #24315a; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  label { color: var(--muted); font-size: 12px; }
+  input[type="number"], input[type="text"], select { background: #0c1325; color: var(--text); border: 1px solid #37496e; border-radius: 8px; padding: 6px 8px; }
+  input[type="checkbox"] { transform: translateY(1px); }
+  .legend { overflow: auto; border: 1px solid #2b375d; border-radius: 8px; padding: 8px; max-height: 240px; background: #0c1427; }
+  .legend-item { display: grid; grid-template-columns: 20px 1fr 88px 88px; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px dashed #233055; }
+  .legend-item:last-child { border-bottom: 0; }
+  .legend-item .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid #00000040; }
+  .legend-item select, .legend-item input[type="color"] { height: 28px; }
+  .legend-item .count { color: var(--muted); font-size: 12px; justify-self: end; }
+  .note { color: var(--muted); font-size: 12px; }
+  .canvas-wrap { position: relative; background: #0a1122; border: 1px solid #273154; border-radius: 12px; overflow: hidden; }
+  canvas { display: block; width: 100%; height: 100%; background: #071024; }
+  .toast { position: absolute; right: 12px; top: 12px; padding: 6px 10px; background: #0d182f; border: 1px solid #2a3a63; color: var(--text); border-radius: 8px; font-size: 12px; opacity: .9; }
+  .footer { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: #0f1a31; border: 1px solid #2b3b64; border-radius: 6px; padding: 1px 5px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h2>Squaremap Structure Plotter</h2>
+      <div class="note">Paste coordinates below. Formats accepted per line:</div>
+      <ul class="note" style="margin:6px 0 8px 18px;">
+        <li><span class="kbd">X Z</span> &nbsp;or&nbsp; <span class="kbd">X,Y</span> &nbsp;or&nbsp; <span class="kbd">X,Y,Z</span> (Z used as horizontal)</li>
+        <li>With type: <span class="kbd">type: X Z</span> or <span class="kbd">[type] X,Y,Z</span> or any text where the first two/three numbers are coords</li>
+        <li>JSON: <span class="kbd">[{"x":123,"z":-456,"type":"village","label":"north"}, ...]</span></li>
+      </ul>
+      <textarea id="input" placeholder="Examples:\n123  -456\nmonument: 19756 -1645\n[village] 832, 70, -304\n{"x": -928, "z": 240, "type": "outpost", "label": "near swamp"}"></textarea>
+      <div class="controls" style="margin-top:8px;">
+        <button id="parseBtn">Parse & Plot</button>
+        <button id="clearBtn" title="Clear input and map">Reset</button>
+      </div>
+
+      <h3>Map</h3>
+      <div class="row">
+        <label style="width:120px">Fit margin (px)</label>
+        <input type="number" id="fitMargin" value="64" min="0" step="8" />
+      </div>
+      <div class="row">
+        <label style="width:120px">Zoom</label>
+        <input type="range" id="zoom" min="0.2" max="8" step="0.05" value="1" />
+        <span id="zoomVal" class="note" style="width:60px; text-align:right;">1.00×</span>
+      </div>
+      <div class="row" style="flex-wrap:wrap; gap:12px 16px;">
+        <label><input type="checkbox" id="showGrid" checked> Grid <span class="note">(100 blocks)</span></label>
+        <label><input type="checkbox" id="showChunks"> Chunk grid <span class="note">(16)</span></label>
+        <label><input type="checkbox" id="showRegions"> Region grid <span class="note">(512)</span></label>
+        <label><input type="checkbox" id="showAxes" checked> Axes 0/0</label>
+        <label><input type="checkbox" id="showLabels" checked> Labels</label>
+        <label><input type="checkbox" id="snapToChunk"> Snap markers to chunk center</label>
+      </div>
+      <div class="row">
+        <button id="exportPng">Export PNG</button>
+        <button id="exportJson">Export JSON</button>
+      </div>
+
+      <h3>Types & Styles</h3>
+      <div id="legend" class="legend"></div>
+      <div class="footer">Drag on canvas to pan. Scroll to zoom. Double-click to fit all.
+        <br>Hotkeys: <span class="kbd">F</span> fit, <span class="kbd">0</span> reset zoom, <span class="kbd">L</span> toggle labels.
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="canvas"></canvas>
+      <div id="toast" class="toast" style="display:none;"></div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (sel, el=document) => el.querySelector(sel);
+  const canvas = $('#canvas');
+  const ctx = canvas.getContext('2d');
+  const DPR = Math.max(1, Math.round(window.devicePixelRatio || 1));
+
+  const state = {
+    points: /** @type {Array<{x:number,z:number,type:string,label?:string}>} */([]),
+    types: /** @type {Record<string,{color:string,shape:string}>} */({}),
+    view: { scale: 1, ox: 0, oz: 0 }, // pixels per block, and pixel offsets
+    bbox: { minX:0, minZ:0, maxX:0, maxZ:0 },
+  };
+
+  const palette = ['#6fd3ff','#ffb86b','#c991ff','#7ee081','#ff6f91','#ffd166','#8be9fd','#f1fa8c','#9dd9ff','#fab387'];
+  const shapes = ['circle','square','triangle','diamond'];
+
+  function toast(t, ms=1600){ const el=$('#toast'); el.textContent=t; el.style.display='block'; clearTimeout(el._t); el._t=setTimeout(()=>{el.style.display='none';}, ms); }
+
+  function setCanvasSize(){
+    const wrap = canvas.parentElement;
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    canvas.width = Math.max(1, Math.floor(w * DPR));
+    canvas.height = Math.max(1, Math.floor(h * DPR));
+    canvas.style.width = w+'px';
+    canvas.style.height = h+'px';
+    ctx.setTransform(DPR,0,0,DPR,0,0);
+  }
+  setCanvasSize();
+  window.addEventListener('resize', ()=>{ setCanvasSize(); draw(); });
+
+  function parseInput(text){
+    text = text.trim();
+    if (!text) return [];
+    // JSON path
+    if (text[0] === '[' || text[0] === '{') {
+      try {
+        const obj = JSON.parse(text);
+        const arr = Array.isArray(obj) ? obj : [obj];
+        return arr.map(o=>({ x: Number(o.x), z: Number(o.z), type: String(o.type || guessType(o.label) || 'structure'), label: o.label ? String(o.label) : undefined }))
+                  .filter(p=>Number.isFinite(p.x) && Number.isFinite(p.z));
+      } catch {}
+    }
+
+    const lines = text.split(/\r?\n/);
+    const out = [];
+    for (let raw of lines){
+      let line = raw.trim();
+      if (!line || line.startsWith('#') || line.startsWith('//')) continue;
+      // grab bracketed type like [village]
+      let type = null;
+      const mBracket = line.match(/\[\s*([^\]]+)\s*\]/);
+      if (mBracket) { type = mBracket[1].trim(); line = line.replace(mBracket[0],'').trim(); }
+      // grab "type:" prefix
+      const mType = line.match(/^([A-Za-z][\w\-\s]{0,30})\s*:\s*/);
+      if (mType) { type = type || mType[1].trim(); line = line.slice(mType[0].length).trim(); }
+      // if still no type, try taking leading word token before first number
+      if (!type){
+        const mLead = line.match(/^([A-Za-z][\w\- ]+)\s+(?=[-+]?\d)/);
+        if (mLead) { type = mLead[1].trim(); line = line.slice(mLead[0].length).trim(); }
+      }
+      // extract numbers (first three)
+      const nums = (line.match(/[-+]?\d+(?:\.\d+)?/g) || []).map(n=>Number(n));
+      if (nums.length < 2) continue;
+      const x = nums[0];
+      const z = nums.length >= 3 ? nums[2] : nums[1]; // X,Y,Z or X,Z
+      if (!Number.isFinite(x) || !Number.isFinite(z)) continue;
+      out.push({ x, z, type: (type||'structure').toLowerCase(), label: undefined });
+    }
+    return out;
+  }
+
+  function guessType(label){
+    if (!label) return null;
+    const s = label.toLowerCase();
+    if (s.includes('monument')) return 'monument';
+    if (s.includes('village')) return 'village';
+    if (s.includes('outpost')) return 'outpost';
+    if (s.includes('stronghold')) return 'stronghold';
+    if (s.includes('mansion')) return 'mansion';
+    if (s.includes('fortress')) return 'fortress';
+    if (s.includes('bastion')) return 'bastion';
+    return 'structure';
+  }
+
+  function buildTypes(points){
+    const found = [...new Set(points.map(p=>p.type))];
+    const base = {
+      monument: { color:'#6fd3ff', shape:'circle' },
+      village:  { color:'#ffb86b', shape:'square' },
+      outpost:  { color:'#c991ff', shape:'triangle' },
+      stronghold:{ color:'#7ee081', shape:'diamond' },
+      mansion:  { color:'#ffd166', shape:'square' },
+      fortress: { color:'#ff6f91', shape:'triangle' },
+      bastion:  { color:'#9dd9ff', shape:'diamond' },
+      structure:{ color:'#9dd9ff', shape:'circle' },
+    };
+    const t = {};
+    let i = 0;
+    for (const key of found){
+      t[key] = base[key] || { color: palette[i++ % palette.length], shape: shapes[i % shapes.length] };
+    }
+    state.types = t;
+    renderLegend();
+  }
+
+  function renderLegend(){
+    const box = $('#legend');
+    box.innerHTML = '';
+    const counts = countByType();
+    for (const [type, style] of Object.entries(state.types)){
+      const row = document.createElement('div');
+      row.className = 'legend-item';
+      const sw = document.createElement('div'); sw.className='swatch'; sw.style.background = style.color; row.appendChild(sw);
+      const name = document.createElement('div'); name.textContent = type; row.appendChild(name);
+      const color = document.createElement('input'); color.type='color'; color.value = cssToHex(style.color); color.oninput = ()=>{ state.types[type].color = color.value; draw(); }; row.appendChild(color);
+      const shape = document.createElement('select');
+      ;['circle','square','triangle','diamond'].forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; if (style.shape===s) o.selected=true; shape.appendChild(o); });
+      shape.onchange = ()=>{ state.types[type].shape = shape.value; draw(); };
+      row.appendChild(shape);
+      const cnt = document.createElement('div'); cnt.className='count'; cnt.textContent = counts[type]||0; row.appendChild(cnt);
+      box.appendChild(row);
+    }
+  }
+
+  function cssToHex(c){
+    const ctx2 = document.createElement('canvas').getContext('2d');
+    ctx2.fillStyle = c; // normalize
+    const s = ctx2.fillStyle; // like rgb(...)
+    const m = s.match(/\d+/g);
+    if (!m) return '#ffffff';
+    const [r,g,b] = m.map(n=>parseInt(n,10));
+    const toHex = (r,g,b) => '#' + [r,g,b].map(n=>n.toString(16).padStart(2,'0')).join('');
+    return toHex(r,g,b);
+  }
+
+  function updateBbox(){
+    if (!state.points.length){ state.bbox = {minX:0,minZ:0,maxX:0,maxZ:0}; return; }
+    let minX=Infinity, minZ=Infinity, maxX=-Infinity, maxZ=-Infinity;
+    for (const p of state.points){ if (p.x<minX) minX=p.x; if (p.z<minZ) minZ=p.z; if (p.x>maxX) maxX=p.x; if (p.z>maxZ) maxZ=p.z; }
+    state.bbox = {minX, minZ, maxX, maxZ};
+  }
+
+  function fitView(){
+    const { minX, minZ, maxX, maxZ } = state.bbox;
+    if (maxX-minX === 0) { state.view.scale = 1; state.view.ox = canvas.clientWidth/2 - minX; state.view.oz = canvas.clientHeight/2 - minZ; return; }
+    const wBlocks = Math.max(1, maxX - minX);
+    const hBlocks = Math.max(1, maxZ - minZ);
+    const pad = Number($('#fitMargin').value)||64;
+    const cw = canvas.clientWidth - pad*2;
+    const ch = canvas.clientHeight - pad*2;
+    const sx = cw / wBlocks;
+    const sz = ch / hBlocks;
+    state.view.scale = Math.max(0.2, Math.min(8, Math.min(sx, sz)));
+    const cx = (minX + maxX) / 2;
+    const cz = (minZ + maxZ) / 2;
+    // place world center at canvas center
+    const centerPxX = canvas.clientWidth/2;
+    const centerPxZ = canvas.clientHeight/2;
+    state.view.ox = centerPxX - cx * state.view.scale;
+    state.view.oz = centerPxZ - cz * state.view.scale;
+    $('#zoom').value = state.view.scale.toFixed(2);
+    $('#zoomVal').textContent = state.view.scale.toFixed(2)+'×';
+  }
+
+  function worldToPx(x,z){ return { px: x*state.view.scale + state.view.ox, pz: z*state.view.scale + state.view.oz }; }
+  function pxToWorld(px,pz){ return { x: (px - state.view.ox)/state.view.scale, z: (pz - state.view.oz)/state.view.scale }; }
+
+  function drawGrid(spacing, color){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const { x:wx0, z:wz0 } = pxToWorld(0,0);
+    const { x:wx1, z:wz1 } = pxToWorld(w,h);
+    const startX = Math.floor(wx0/spacing)*spacing;
+    const endX   = Math.ceil(wx1/spacing)*spacing;
+    const startZ = Math.floor(wz0/spacing)*spacing;
+    const endZ   = Math.ceil(wz1/spacing)*spacing;
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.beginPath();
+    for (let x=startX; x<=endX; x+=spacing){ const p0=worldToPx(x,startZ), p1=worldToPx(x,endZ); ctx.moveTo(p0.px, p0.pz); ctx.lineTo(p1.px, p1.pz); }
+    for (let z=startZ; z<=endZ; z+=spacing){ const p0=worldToPx(startX,z), p1=worldToPx(endX,z); ctx.moveTo(p0.px, p0.pz); ctx.lineTo(p1.px, p1.pz); }
+    ctx.stroke();
+  }
+
+  function drawAxes(){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.strokeStyle = 'var(--axis)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    // X axis at Z=0
+    let p0 = worldToPx(pxToWorld(0,0).x, 0), p1 = worldToPx(pxToWorld(w,0).x, 0);
+    ctx.moveTo(p0.px, p0.pz); ctx.lineTo(p1.px, p1.pz);
+    // Z axis at X=0
+    p0 = worldToPx(0, pxToWorld(0,0).z); p1 = worldToPx(0, pxToWorld(0,h).z);
+    ctx.moveTo(p0.px, p0.pz); ctx.lineTo(p1.px, p1.pz);
+    ctx.stroke();
+  }
+
+  function drawPoint(p, style){
+    const { px, pz } = worldToPx(p.x, p.z);
+    const r = Math.max(3, 5 * Math.sqrt(state.view.scale));
+    ctx.fillStyle = style.color; ctx.strokeStyle = '#00000070'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    switch(style.shape){
+      case 'square': ctx.rect(px - r, pz - r, 2*r, 2*r); break;
+      case 'triangle': ctx.moveTo(px, pz - r); ctx.lineTo(px + r, pz + r); ctx.lineTo(px - r, pz + r); ctx.closePath(); break;
+      case 'diamond': ctx.moveTo(px, pz - r); ctx.lineTo(px + r, pz); ctx.lineTo(px, pz + r); ctx.lineTo(px - r, pz); ctx.closePath(); break;
+      default: ctx.arc(px, pz, r, 0, Math.PI*2); break;
+    }
+    ctx.fill(); ctx.stroke();
+  }
+
+  // >>> drawLabels: show label if present; else coords + (type) when type != 'structure'; else just coords
+  function drawLabels(pts){
+    ctx.font = '12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    for (const p of pts){
+      const { px, pz } = worldToPx(p.x, p.z);
+      let text;
+      if (p.label && String(p.label).trim().length) {
+        text = String(p.label);
+      } else if (p.type && p.type !== 'structure') {
+        text = `${Math.round(p.x)} ${Math.round(p.z)} (${p.type})`;
+      } else {
+        text = `${Math.round(p.x)} ${Math.round(p.z)}`;
+      }
+      const padX = 12, padY = 8;
+      const w = ctx.measureText(text).width + 6;
+      ctx.fillStyle = '#00000090'; ctx.fillRect(px+padX-3, pz+padY-1, w, 16);
+      ctx.fillStyle = '#dfe7ff'; ctx.fillText(text, px+padX, pz+padY);
+    }
+  }
+
+  function countByType(){
+    const c = {}; for (const p of state.points){ c[p.type] = (c[p.type]||0)+1; } return c;
+  }
+
+  function draw(){
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    if ($('#showGrid').checked) drawGrid(100, getCSS('--grid'));
+    if ($('#showChunks').checked) drawGrid(16, getCSS('--chunk'));
+    if ($('#showRegions').checked) drawGrid(512, getCSS('--region'));
+    if ($('#showAxes').checked) drawAxes();
+
+    // draw by type for z-order consistency
+    const types = Object.keys(state.types);
+    for (const t of types){
+      const style = state.types[t];
+      const pts = state.points.filter(p=>p.type===t);
+      for (const p of pts){
+        const p2 = $('#snapToChunk').checked ? { ...p, x: Math.round(p.x/16)*16 + 0.5, z: Math.round(p.z/16)*16 + 0.5 } : p;
+        drawPoint(p2, style);
+      }
+      if ($('#showLabels').checked) drawLabels(pts);
+    }
+  }
+
+  function getCSS(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || '#334'; }
+
+  // Interaction: pan & scroll zoom
+  let dragging=false, last={x:0,z:0};
+  canvas.addEventListener('mousedown', e=>{ dragging=true; last.x=e.clientX; last.z=e.clientY; });
+  window.addEventListener('mouseup', ()=>dragging=false);
+  window.addEventListener('mousemove', e=>{
+    if (!dragging) return;
+    const dx = e.clientX - last.x; const dz = e.clientY - last.z; last.x=e.clientX; last.z=e.clientY;
+    state.view.ox += dx; state.view.oz += dz; draw();
+  });
+  canvas.addEventListener('wheel', e=>{
+    e.preventDefault();
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    const old = state.view.scale; const nw = Math.max(0.2, Math.min(8, old * factor));
+    if (nw === old) return;
+    // zoom around mouse
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left; const mz = e.clientY - rect.top;
+    const wx0 = (mx - state.view.ox)/old; const wz0 = (mz - state.view.oz)/old;
+    state.view.scale = nw; $('#zoom').value = nw.toFixed(2); $('#zoomVal').textContent = `${nw.toFixed(2)}×`;
+    state.view.ox = mx - wx0 * nw; state.view.oz = mz - wz0 * nw; draw();
+  }, { passive:false });
+  canvas.addEventListener('dblclick', ()=>{ fitView(); draw(); });
+
+  // Controls
+  $('#zoom').addEventListener('input', e=>{ const v=Number(e.target.value); state.view.scale=v; $('#zoomVal').textContent = v.toFixed(2)+'×'; draw(); });
+  $('#fitMargin').addEventListener('change', ()=>{ fitView(); draw(); });
+  $('#showGrid').addEventListener('change', draw);
+  $('#showChunks').addEventListener('change', draw);
+  $('#showRegions').addEventListener('change', draw);
+  $('#showAxes').addEventListener('change', draw);
+  $('#showLabels').addEventListener('change', draw);
+  $('#snapToChunk').addEventListener('change', draw);
+
+  $('#parseBtn').addEventListener('click', ()=>{
+    const pts = parseInput($('#input').value);
+    if (!pts.length){ toast('No coordinates parsed.'); return; }
+    state.points = pts;
+    buildTypes(pts);
+    updateBbox();
+    fitView();
+    draw();
+    toast(`Plotted ${pts.length} point(s) across ${Object.keys(state.types).length} type(s).`);
+  });
+  $('#clearBtn').addEventListener('click', ()=>{
+    $('#input').value=''; state.points=[]; state.types={}; updateBbox(); draw(); renderLegend();
+  });
+
+  $('#exportPng').addEventListener('click', ()=>{
+    const url = canvas.toDataURL('image/png');
+    const a = document.createElement('a'); a.href = url; a.download = 'structure-map.png'; a.click();
+  });
+
+  $('#exportJson').addEventListener('click', ()=>{
+    const data = JSON.stringify(state.points, null, 2);
+    const blob = new Blob([data], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download='structures.json'; a.click(); URL.revokeObjectURL(url);
+  });
+
+  // Hotkeys
+  window.addEventListener('keydown', e=>{
+    if (e.key==='0') { state.view.scale=1; $('#zoom').value='1'; $('#zoomVal').textContent='1.00×'; draw(); }
+    if (e.key.toLowerCase()==='f') { fitView(); draw(); }
+    if (e.key.toLowerCase()==='l') { $('#showLabels').checked = !$('#showLabels').checked; draw(); }
+  });
+
+  // Seed example
+  $('#input').value = [
+    '# Paste your coords below. Examples:',
+    'monument: 19756 -1645',
+    '[village] 832, 70, -304',
+    'outpost: -928 240',
+    '{"x": -1200, "z": 512, "type": "stronghold", "label": "eye trail"}',
+  ].join('\n');
+})();
+</script>
+</body>
+</html>
